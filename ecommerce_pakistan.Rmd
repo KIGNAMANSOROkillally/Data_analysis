@@ -1,0 +1,252 @@
+---
+title: "e-commerce (Pakistan 2016-2018)"
+author: "Killally"
+date: "2025-09-20"
+output: html_document
+---
+
+Dataset: The dataset contains detailed information of half a million e-commerce orders in Pakistan from March 2016 to August 2018. It contains item details, shipping method, payment method like credit card, Easy-Paisa, Jazz-Cash, cash-on-delivery, product categories like fashion, mobile, electronics, appliance etc., date of order, SKU, price, quantity, total and customer ID. This is the most detailed dataset about e-commerce in Pakistan that you can find in the Public domain.
+
+Ensemble de données : L'ensemble de données contient des informations détaillées sur un demi-million de commandes en ligne passées au Pakistan entre mars 2016 et août 2018. Il comprend les détails des articles, le mode de livraison, le mode de paiement (carte de crédit, Easy-Paisa, Jazz-Cash, paiement à la livraison, etc.), les catégories de produits (mode, téléphonie mobile, électronique, électroménager, etc.), la date de la commande, la référence produit (SKU), le prix, la quantité, le montant total et l'identifiant du client. Il s'agit de l'ensemble de données le plus détaillé sur le commerce électronique au Pakistan que vous pouvez trouver dans le domaine public.
+
+# Importer les librairies
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(cluster)
+library(factoextra)
+library(scales)
+```
+
+# Lecture du dataset
+```{r}
+# Lecture du fichier
+df <- read_delim("ecommerce_dataset.csv", na = c("", "null", "NULL", "N/A", "NA", "\\N"))[, 1:21] # Car les autres colonnes sont vides. En R les \N doivent être écrit \\N sinon on a une erreur.
+
+# Aperçu rapide
+#str(df)
+head(df)
+names(df)
+```
+
+## Taux d'achèvement des commandes
+```{r}
+
+unique(df$status)
+
+rate_achieve <- df %>%
+    summarise(
+        complete_rate = mean(status == "complete", na.rm = TRUE) * 100, #commande complétée (terminée, livrée et payée) 
+        canceled_rate = mean(status == "canceled", na.rm = TRUE) * 100, #commande annulée 
+        order_refunded = mean(status == "order_refunded", na.rm = TRUE) * 100, #commande remboursée 
+        received_rate = mean(status == "received", na.rm = TRUE) * 100, #commande reçue 
+        refund_rate = mean(status == "refund", na.rm = TRUE) * 100, #remboursement effectué 
+        closed_rate = mean(status == "closed", na.rm = TRUE) * 100, #commande clôturée
+        fraud_rate = mean(status == "fraud", na.rm = TRUE) * 100, #commande frauduleuse détectée 
+        holded_rate = mean(status == "holded", na.rm = TRUE) * 100, #commande mise en attente 
+        exchange_rate = mean(status == "exchange", na.rm = TRUE) * 100, #commande échangée 
+        pending_paypal_rate = mean(status == "pending_paypal", na.rm = TRUE) * 100, #paiement en attente via PayPal
+        paid_rate = mean(status == "paid", na.rm = TRUE) * 100, #commande marquée comme payée
+        NA_rate = mean(status == "NA", na.rm = TRUE) * 100, #valeur manquante
+        cod_rate = mean(status == "cod", na.rm = TRUE) * 100, #Cash on Delivery (paiement à la livraison)
+        pending_rate = mean(status == "pending", na.rm = TRUE) * 100, #commande en attente
+        processing_rate = mean(status == "processing", na.rm = TRUE) *100, #commande en cours de traitement
+        payment_review_rate = mean(status == "payment_review", na.rm = TRUE) * 100 #paiement en cours de vérification
+        
+    )
+
+resultats <- data.frame(
+    statut = c("complete", "canceled", "order_refunded", "received", "refund", "closed", "fraud", "holded", "exchange", "pending_paypal", "paid", "NA", "cod", "pending", "processing", "payment_review"),
+    taux = c(39.97998, 34.43067, 10.18452, 13.22315, 1.377234, 0.08451596, 0.001710849, 0.005303633, 0.0006843397, 0.001197595, 0.1982874, 0, 0.4891318, 0.008212077, 0.005645803, 0.009751841)
+)
+
+ggplot(resultats, aes(x = reorder(statut, taux), y = taux, fill = statut)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  
+  geom_text(aes(label = paste0(round(taux, 1), "%")), 
+            hjust = -0.1, size = 3) +
+  labs(title = "Répartition des statuts de commandes",
+       x = "Statut de commande",
+       y = "Pourcentage (%)") +
+  theme_minimal() +
+  scale_fill_viridis_d() +
+  theme(legend.position = "none")  
+
+```
+
+
+# Nettoyage des données
+```{r}
+# Vérification des valeurs manquantes
+Na_missing <- df %>%
+    summarise(across(everything(), ~ round(mean(is.na(.)) * 100, 2))) %>%
+    pivot_longer(everything(), names_to = "Colonne", values_to = "Pourcentage")
+
+df <- distinct(df)
+
+# Renommer les noms des colonnes avec les espaces
+names(df) <- make.names(names(df))
+
+# Gérer les dates
+df <- df %>%
+    mutate(across(c(created_at, `Working.Date`), ~ as.Date(., format = "%d/%m/%Y")))
+```
+
+
+# Je décide de ne travailler qu'avec les commandes complètes
+```{r}
+# Garder uniquement les commandes valides
+df_only_complete <- df %>% filter(status == "complete")
+
+# Vérifier les valeurs négatives ou nulles dans le prix
+df_only_complete <- df_only_complete %>% filter(price > 0 & grand_total > 0)
+
+#print(dim(df_only_complete))
+
+```
+
+## Analyse descriptive (tendances de consommation)
+
+```{r}
+# --- Produits les plus vendus ---
+top_category <- df %>%
+    count(category_name_1) %>%
+    arrange(desc(n))
+
+ggplot(top_category, aes(x = n, y = reorder(category_name_1, n))) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Top des catégories les plus vendues",
+       x = "Nombre de commandes",
+       y = "Catégories") +
+  scale_x_continuous(labels = label_number(big.mark = " ")) +  
+  theme_minimal()
+```
+
+```{r}
+# --- Panier moyen ---
+panier_moyen <- mean(df_only_complete$grand_total, na.rm = TRUE)
+print(paste("Panier moyen :", round(panier_moyen, 2), "PKR")) # PKR = Roupie Pakistanaise
+
+# Transformer les mois en noms exacts
+monthly_sales <- df_only_complete %>%
+  group_by(Month) %>%
+  summarise(CA = sum(grand_total, na.rm = TRUE)) %>%
+  mutate(Month_num = as.numeric(Month))   # récupère l'ordre 1-12
+
+ggplot(monthly_sales, aes(x = Month_num, y = CA)) +
+  geom_line(color = "darkred") +
+  geom_point(color = "darkred") +
+  scale_x_continuous(breaks = 1:12, labels = month.name) +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Évolution mensuelle du chiffre d'affaires",
+       x = "Mois", y = "CA (PKR)")
+
+```
+
+## Segmentation RFM
+```{r}
+# Table RFM par client
+rfm <- df_only_complete %>%
+  group_by(`Customer.ID`) %>%
+  summarise(
+    Recency = as.numeric(difftime(max(df_only_complete$Working.Date), max(Working.Date), units = "days")),  # jours depuis la dernière commande
+    Frequency = n(),                                 # nb commandes
+    Monetary = sum(`grand_total`, na.rm = TRUE)      # montant total
+  )
+
+head(rfm)
+
+# Standardisation pour le clustering
+rfm_scaled <- rfm %>%
+  select(Recency, Frequency, Monetary) %>%
+  scale()
+
+```
+
+Recency (jours depuis dernière commande) est nul (NA) car les clients (uniques) ont tous commandés à la même date. Je vais donc faire le clustering en me basant seulement sur Nombre de commandes (Frequency) et Montant dépensé (Monetary)  
+
+## Clustering (K-Means)
+```{r}
+# --- Déterminer le nombre optimal de clusters avec la méthode du coude ---
+# Clustering basé uniquement sur Frequency et Monetary
+rfm_scaled_fm <- rfm %>%
+  select(Frequency, Monetary) %>%
+  scale()
+
+# Méthode du coude
+set.seed(42)
+wss <- map_dbl(1:10, function(k) {
+  kmeans(rfm_scaled_fm, centers = k, nstart = 25)$tot.withinss
+})
+
+# Graphique méthode du coude
+elbow_df <- data.frame(k = 1:10, wss = wss)
+ggplot(elbow_df, aes(x = k, y = wss)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 3) +
+  labs(title = "Méthode du coude pour déterminer le nombre optimal de clusters",
+       x = "Nombre de clusters (k)",
+       y = "Inertie intra-classe (WSS)") +
+  scale_x_continuous(breaks = 1:10) +
+  theme_minimal()
+
+# Clustering avec k=4
+kmeans_result <- kmeans(rfm_scaled_fm, centers = 4, nstart = 25)
+rfm$Cluster <- kmeans_result$cluster
+
+# Voir les caractéristiques réelles des clusters
+caract_cluster <- rfm %>%
+    group_by(Cluster) %>%
+    summarise(
+        Avg_Frequency = mean(Frequency),
+        Avg_Monetary = mean(Monetary),
+        count = n()
+    )
+
+# Séparer les clusters en fonction des résultats de caract_cluster
+rfm <- rfm %>%
+    mutate(Cluster_label = case_when(
+        Cluster == 1 ~ "VIP",
+        Cluster == 2 ~ "Réguliers",
+        Cluster == 3 ~ "VIP Premium",
+        Cluster == 4 ~ "Occasionnels"
+    ))
+
+# Graphique du clustering
+ggplot(rfm, aes(x = Frequency, y = Monetary, color = Cluster_label)) +
+  geom_point(alpha = 0.7, size = 3) +
+  labs(title = "Segmentation clients basée sur Frequency et Monetary",
+       x = "Fréquence d'achat",
+       y = "Valeur monétaire (PKR)",
+       color = "Profil Client") +
+  scale_color_brewer(palette = "Set1") +
+  scale_y_continuous(labels = label_number(big.mark = " ")) +  
+  theme_minimal()
+```
+
+De k = 1 → 2 et de 2 → 3, la chute d’inertie est très forte.
+
+Après k = 4, la pente devient presque linéaire et les gains sont faibles.
+
+On observe aussi un second coude marqué autour de k = 6 (forte baisse après k = 5).
+
+Je décide de prendre 4 clusters. Mais 6 aurait été un choix justifié également.
+
+
+## Recommandations
+```{r}
+actions <- list(
+    "1" = "Clients VIP ==> 302 clients réguliers, dépensent ≈ 1.3M PKR. Stratégie : maintenir l’engagement → réductions personnalisées, avantages premium.",
+    "2" = "Clients réguliers ==> 37 clients occasionnels, dépensent ≈ 247K PKR. Stratégie : stimuler plus d’achats → promotions ciblées, cross-selling, newsletters.",
+    "3" = "Clients VIP Premium ==> 877 clients ultra actifs, dépensent ≈ 4.45M PKR. Stratégie : fidélisation maximum → service prioritaire, offres exclusives, programme VIP.",
+    "4" = "Clients à faible valeur ==> 2.5 clients (quasi inactifs), ≈ 12K PKR (très faible contribution). Stratégie : réactivation → relances email/SMS, coupons de bienvenue, promos flash"
+)
+
+for (variable in names(actions)) {
+    cat("Cluster", variable, ":", actions[[variable]], "\n")
+}
+```
+*Les montants monetaires sont cumulés sur l'ensemble de la période des données disponibles. L'absence de données temporelles (Recency) ne permet pas de déterminer si ces dépenses sont annuelles, mensuelles ou sur une autre période.*
+
