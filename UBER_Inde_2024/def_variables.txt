@@ -1,0 +1,45 @@
+Column Name	Description
+Date	Date of the booking
+Time	Time of the booking
+Booking ID	Unique identifier for each ride booking
+Booking Status	Status of booking (Completed, Cancelled by Customer, Cancelled by Driver, etc.)
+Customer ID	Unique identifier for customers
+Vehicle Type	Type of vehicle (Go Mini, Go Sedan, Auto, eBike/Bike, UberXL, Premier Sedan)
+Pickup Location	Starting location of the ride
+Drop Location	Destination location of the ride
+Avg VTAT	Average Vehicle Time at Arrival
+Avg CTAT	Average Customer Time at Arrival
+Cancelled Rides by Customer	Customer-initiated cancellation flag
+Reason for cancelling by Customer	Reason for customer cancellation
+Cancelled Rides by Driver	Driver-initiated cancellation flag
+Driver Cancellation Reason	Reason for driver cancellation
+Incomplete Rides	Incomplete ride flag
+Incomplete Rides Reason	Reason for incomplete rides
+Booking Value	Total fare amount for the ride
+Ride Distance	Distance covered during the ride (in km)
+Driver Ratings	Rating given to driver (1-5 scale)
+Customer Rating	Rating given by customer (1-5 scale)
+Payment Method	Method used for payment (UPI, Cash, Credit Card, Uber Wallet, Debit Card)
+
+Nom de la colonne    Description
+Date    Date de la réservation
+Heure    Heure de la réservation
+ID de réservation    Identifiant unique pour chaque réservation de course
+Statut de la réservation    Statut de la réservation (terminée, annulée par le client, annulée par le chauffeur, etc.)
+ID client    Identifiant unique pour les clients
+Type de véhicule    Type de véhicule (Go Mini, Go Sedan, Auto, eBike/Bike, UberXL, Premier Sedan)
+Lieu de prise en charge    Lieu de départ de la course
+Lieu de dépose    Lieu de destination de la course
+VTAT moyen    Temps moyen d'arrivée du véhicule
+CTAT moyen    Temps moyen d'arrivée du client
+Courses annulées par le client    Indicateur d'annulation initiée par le client
+Raison de l'annulation par le client    Raison de l'annulation par le client
+Courses annulées par le chauffeur    Indicateur d'annulation initiée par le chauffeur
+Motif d'annulation par le chauffeur    Motif de l'annulation par le chauffeur
+Courses incomplètes    Indicateur de course incomplète
+Motif des courses incomplètes    Motif des courses incomplètes
+Valeur de la réservation    Montant total du prix de la course
+Distance parcourue    Distance parcourue pendant la course (en km)
+Évaluations du chauffeur    Évaluation attribuée au chauffeur (échelle de 1 à 5)
+Note du client    Note attribuée par le client (sur une échelle de 1 à 5)
+Mode de paiement    Mode de paiement utilisé (UPI, espèces, carte de crédit, portefeuille Uber, carte de débit)
