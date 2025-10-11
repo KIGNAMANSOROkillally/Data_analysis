@@ -1,0 +1,313 @@
+---
+title: "Analyse et modélisation de la souscription bancaire"
+author: "Killally"
+date: "2025-10-11"
+output: html_document
+---
+
+**But :** comprendre les facteurs influençant la décision d’un client à souscrire à un produit d’épargne, et construire un modèle prédictif fiable pour anticiper les réponses positives.
+
+**Objective:** to understand the factors influencing a customer's decision to subscribe to a savings product, and to build a reliable predictive model to anticipate positive responses.
+
+This file is a “Bank Marketing” dataset from the UCI Machine Learning Repository https://archive.ics.uci.edu/ml/datasets/Bank+Marketing.
+It contains the socioeconomic characteristics of a bank's customers and the target variable: whether or not they signed up for a term deposit after a marketing campaign.
+
+Ce fichier est un jeu de données “Bank Marketing” de l’UCI Machine Learning Repository https://archive.ics.uci.edu/ml/datasets/Bank+Marketing.
+Il contient les caractéristiques socio-économiques de clients d’une banque et la variable cible : s’ils ont souscrit ou non à un dépôt à terme (term deposit) après une campagne de marketing.
+
+Description des variables: 
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(janitor)
+library(lubridate)
+library(skimr)
+library(ggplot2)
+library(caret)
+library(pROC)
+```
+
+## 1. Importation, préparation et Nettoyage des données
+
+```{r}
+bank <- read_csv("bank.csv") %>%
+    clean_names() %>%
+    mutate(deposit = factor(deposit))
+
+skim(bank)
+```
+
+## 2. Analyse exploratoire (EDA)
+
+### 2.1 Distribution de l'âge et du solde bancaire
+
+```{r}
+ggplot(bank, aes(age, fill = deposit)) +
+    geom_histogram(bins = 25, alpha = 0.7) +
+    facet_wrap(~deposit, ncol = 1) +
+    labs(title = "Distribution de l'âge selon la souscription", x = "Âge", y = "Nombre de clients")
+
+ggplot(bank, aes(balance, fill = deposit)) +
+    geom_histogram(bins = 30, alpha = 0.7) +
+    facet_wrap(~deposit, ncol = 1) +
+    scale_x_continuous(labels = scales::comma) +
+    labs(title = "Distribution du solde moyen annuel par client", x = "Solde (€)", y = "Fréquence")
+```
+
+### 2.2 Répartition par profession et éducation
+
+```{r}
+ggplot(bank, aes(job, fill = deposit)) +
+    geom_bar() +
+    facet_wrap(~deposit) +
+    coord_flip() +
+    labs(title = "Taux de souscription par profession", y = "Proportion", x = "Profession")
+
+ggplot(bank, aes(education, fill = deposit)) +
+    geom_bar() +
+    facet_wrap(~deposit) +
+    coord_flip() +
+    labs(title = "Souscription selon le niveau d'éducation", x = "Proportion", y = "Education")
+```
+
+### 2.3 Influence de la durée d’appel
+
+```{r}
+ggplot(bank, aes(y = duration, x = deposit, fill = deposit)) +
+  geom_boxplot(alpha = 0.8) +
+  labs(title = "Durée d'appel selon la souscription", x = "Souscription", y = "Durée (secondes)")
+```
+
+## 3. Tests statistiques
+
+```{r}
+# Test du Chi² entre souscription et profession
+chisq.test(table(bank$job, bank$deposit))
+
+# Comparaison de la durée d'appel entre les groupes
+summary(aov(duration ~ deposit, data = bank))
+```
+
+1. Test du Chi² - Profession vs Souscription
+
+Résultat : χ² = 378.08, df = 11, p-value < 0.001
+
+Interprétation :
+
+Il existe une association statistiquement significative entre la profession et la souscription au produit
+
+La p-value extrêmement faible (< 2.2e-16) indique que cette association n'est pas due au hasard
+
+La profession semble être un facteur important dans la décision de souscrire
+
+2. Analyse de variance - Durée d'appel vs Souscription
+
+Résultat : F = 2864, p-value < 0.001
+
+Interprétation :
+
+Il existe une différence très significative dans la durée moyenne des appels entre ceux qui souscrivent et ceux qui ne souscrivent pas
+
+La durée d'appel est clairement associée à la souscription
+
+En général, les appels plus longs sont associés à une plus grande probabilité de souscription
+
+
+## 4. Modélisation prédictive
+
+### 4.1 Division train/test
+
+```{r}
+set.seed(123)
+trainIndex <- createDataPartition(bank$deposit, p = 0.8, list = FALSE)
+train <- bank[trainIndex, ]
+test  <- bank[-trainIndex, ]
+```
+
+### 4.2 Régression logistique
+
+```{r}
+model <- glm(deposit ~ age + job + marital + education + balance + housing + loan + contact + duration + campaign + poutcome, data = train, family = "binomial")
+
+summary(model)
+```
+
+**Variables qui augmentent la probabilité de souscription :**
+
+educationtertiary : Les clients avec un niveau universitaire ont plus de chance de souscrire
+
+educationsecondary : Niveau secondaire aussi favorable, mais moins fort
+
+jobstudent : Les étudiants sont plus susceptibles de répondre positivement
+
+balance : Un solde plus élevé augmente légèrement la probabilité
+
+duration : Plus l’appel est long, plus la probabilité augmente fortement
+
+poutcomesuccess : Si la campagne précédente a réussi, la probabilité explose (coefficient 2.217). En interprétant le coefficient poutcomesuccess = 2.217 :
+exp(2.217) ≈ 9.18 ==> Un client ayant déjà eu une campagne réussie est 9 fois plus susceptible de souscrire à nouveau.
+
+**Variables qui diminuent la probabilité :**
+
+housingyes : Avoir un prêt immobilier réduit la probabilité
+
+loanyes : Idem pour les autres prêts personnels
+
+contactunknown : Si le mode de contact est inconnu → forte baisse
+
+campaign : Plus le client a été contacté souvent, moins il répond positivement
+
+jobblue-collar, jobservices, jobself-employed, jobentrepreneur : Les métiers manuels ou indépendants sont moins réceptifs
+
+*Par exemple housingyes = -0.8127 :*
+
+odds ratio = exp(-0.8127) ≈ 0.44. Un client avec un prêt immobilier a 56 % de chances en moins de souscrire.
+
+**Variables peu significatives (p > 0.05) :**
+
+age ==> pas d’effet significatif direct dans ce modèle global.
+
+contacttelephone ==> pas de différence notable avec le contact “cellular”.
+
+poutcomeother, jobunemployed ==> effet faible ou incertain.
+
+### 4.3 Prédiction et évaluation
+
+```{r}
+preds <- predict(model, newdata = test, type = "response")
+roc_obj <- roc(test$deposit, preds)
+auc_value <- auc(roc_obj)
+
+# Classification binaire avec seuil 0.5
+test$predicted <- ifelse(preds > 0.5, "yes", "no") %>% factor(levels = levels(test$deposit))
+
+confusion <- confusionMatrix(test$predicted, test$deposit)
+confusion
+auc_value
+```
+
+Performance très bonne, significativement supérieure au taux de base (52,62%)
+
+L'intervalle de confiance à 95% est [0,787; 0,8204]
+
+            Réel:Non  Réel:Oui
+Prédit : Non	979	    242
+Prédit : Oui	195	    815
+
+Le modèle distingue très bien les deux classes.
+
+Sensibilité (classe "non") : 83,39% - Bonne détection des vrais "non"
+
+Spécificité (classe "oui") : 77,11% - Capacité correcte à identifier les "oui"
+
+Précision (Pos Pred Value) : 80,18% - Quand le modèle prédit "non", il a raison 80% du temps. D'après la sortie, la classe "no" est la classe positive.
+
+Pos Pred Value (PPV) = Précision = Vrais Positifs / (Vrais Positifs + Faux Positifs)
+
+979 / (979 + 242) = 979 / 1221 ≈ 0,8018
+
+Valeur prédictive négative : 80,69% - Quand il prédit "oui", il a raison 81% du temps
+
+Neg Pred Value (NPV) = Valeur Prédictive Négative = Vrais Négatifs / (Vrais Négatifs + Faux Négatifs)
+
+815 / (815 + 195) = 815 / 1010 ≈ 0,8069
+
+**AUC** (Area Under Curve) > 0.80 indique un bon pouvoir discriminant du modèle.
+
+
+## 5. Les coefficients
+
+```{r}
+exp(coef(model)) %>% sort(decreasing = TRUE)
+
+# Les coefficients exponentiés représentent le rapport de chances (*odds ratio*). Par exemple, un **odds ratio de 2** signifie que cette variable double la probabilité de souscription.
+```
+
+## 6. RANDOM FOREST (to see if there is an improvement in the model)
+
+```{r}
+cat(strrep("=", 50), "\n")
+cat("RANDOM FOREST", "\n")
+cat(strrep("=", 50), "\n")
+
+library(randomForest)
+
+set.seed(123)
+rf_model <- randomForest(deposit ~ age + job + marital + education + balance + housing + loan + contact + duration + campaign + poutcome,
+                         data = train,
+                         ntree = 500,
+                         mtry = 4,
+                         importance = TRUE)
+
+# Aperçu du modèle
+rf_model
+```
+
+### 6.1. Importance des variables
+
+```{r}
+varImpPlot(rf_model, main = "Importance des variables - Random Forest")
+```
+### 6.2. Prédictions et évaluation du modèle RF
+
+```{r}
+# Prédiction des probabilités
+preds_rf <- predict(rf_model, newdata = test, type = "prob")[,2]
+
+# Calcul de l'AUC
+roc_rf <- roc(test$deposit, preds_rf)
+auc_rf <- auc(roc_rf)
+
+# Classification binaire avec seuil 0.5
+test$pred_rf <- ifelse(preds_rf > 0.5, "yes", "no") %>% factor(levels = levels(test$deposit))
+
+# Matrice de confusion
+confusion_rf <- confusionMatrix(test$pred_rf, test$deposit)
+confusion_rf
+auc_rf
+```
+
+### 6.3. Comparaison des performances (Logistique vs Random Forest)
+
+```{r}
+# Tableau comparatif des AUC
+auc_values <- tibble(
+  Modèle = c("Régression Logistique", "Random Forest"),
+  AUC = c(as.numeric(auc_value), as.numeric(auc_rf))
+)
+
+ggplot(auc_values, aes(x = Modèle, y = AUC, fill = Modèle)) +
+  geom_col() +
+  geom_text(aes(label = round(AUC, 3)), vjust = -0.5, size = 4.5) +
+  labs(title = "Comparaison des performances (AUC)", y = "AUC", x = "") +
+  theme_minimal()
+```
+
+## 7. Recommandation business
+
+**TOP 3 DES SEGMENTS À FORT POTENTIEL**
+
+Clients avec précédent succès (poutcome = success) ==> 9.2x plus de chances de souscrire
+
+Diplômés de l'enseignement supérieur (education = tertiary) ==> 1.9x plus de chances
+
+Étudiants (job = student) ==> 1.7x plus de chances
+
+**SEGMENTS SECONDAIRES PROMETTEURS**
+
+Retraités (1.35x plus de chances)
+
+Niveau d'éducation secondaire (1.4x plus de chances)
+
+Célibataires (1.1x plus de chances)
+
+**SEGMENTS À ÉVITER OU LIMITER**
+
+Clients avec prêt immobilier (housing = yes) : -56% de chances
+
+Clients avec prêt personnel (loan = yes) : -48% de chances
+
+Contact inconnu : -72% de chances
+
+Professions manuelles (blue-collar, entrepreneur) : -38% à -43% de chances
+
