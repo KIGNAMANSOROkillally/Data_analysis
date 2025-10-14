@@ -1,0 +1,178 @@
+---
+title: "Analyse et prévision du risque de tsunami"
+author: "Killally"
+date: "2025-10-14"
+output: html_document
+---
+
+# Objectif du projet
+
+Étudier les relations entre les paramètres sismiques (magnitude, profondeur, intensité, distance épicentrale, etc.) et la probabilité d’un tsunami, en utilisant un jeu de données mondial contenant 782 séismes entre 2001 et 2022.
+
+lien: https://www.kaggle.com/datasets/ahmeduzaki/global-earthquake-tsunami-risk-assessment-dataset
+
+```{r}
+# Librairies
+library(tidyverse)
+library(janitor)
+library(skimr)
+library(ggthemes)
+library(caret)
+library(ggcorrplot)
+library(randomForest)
+library(ggplot2)
+theme_set(theme_minimal(base_size = 12))
+```
+
+# Importer le dataset
+
+```{r}
+earthquake <- read_csv("earthquake_data_tsunami.csv") %>%
+    clean_names()
+
+summary(earthquake)
+```
+
+# Data cleaning
+
+```{r}
+# Convertir en facteur
+earthquake <- earthquake %>%
+    mutate(tsunami = factor(tsunami))
+
+# Vérification rapide
+skim(earthquake)
+
+# Chercher les valeurs aberrantes
+earthquake %>%
+    select(where(is.numeric)) %>%
+    boxplot(las = 2)
+
+```
+
+# Exploration visuelle
+
+## Répartition géographique des tsunamis
+
+```{r}
+# Voir la répartition des tsunamis sur une carte du monde
+# Chager la carte du monde
+world_map <- map_data("world")
+
+# Carte + point de séisme
+ggplot() +
+    geom_polygon(data = world_map, aes(x = long, y = lat, group = group),
+                 fill = "gray95", color = "gray70") +
+    geom_point(data = earthquake, aes(x = longitude, y = latitude, color = tsunami), alpha = 0.6, size = 1.5) +
+    coord_fixed(1.3) + # conservation des proportions réelles
+    labs(title = "Répartion des tsunamis sur la carte du monde (2001-2022)", x = "Longitude", y = "Latitude", color = "Tsunami") +
+    scale_color_manual(values = c("blue", "red"), labels = c("Non", "Oui")) +
+    theme_minimal(base_size = 12) +
+    theme(panel.grid = element_blank(), axis.text = element_text(size = 10))
+
+```
+Les tsunamis sont situés sur les côtes
+
+## Correlation entre les variables
+
+```{r}
+corr_matrix <- earthquake %>%
+    select(where(is.numeric)) %>%
+    cor(method = "pearson", use = "pairwise.complete.obs")
+
+ggcorrplot(corr_matrix, hc.order = FALSE, type = "full", lab = TRUE, lab_size = 3, colors = c("blue", "white", "red"),
+           ggtheme = ggplot2::theme_minimal(), title = "Correlation entre les variables") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Modélisation prédictive (classification)
+
+## Séparation des données en train et test
+
+```{r}
+set.seed(123)
+
+trainIndex <- createDataPartition(earthquake$tsunami, p = 0.8, list = FALSE)
+train <- earthquake[trainIndex, ]
+test <- earthquake[-trainIndex, ]
+```
+
+## Random Forest
+
+```{r}
+rf_model <- randomForest(tsunami ~ ., data = train, ntree = 500)
+rf_model
+```
+
+Performance globale du modèle:
+
+Taux d'erreur OOB : 8.45% => Excellente performance
+
+**Pour la classe 0 (Pas de tsunami)**
+
+Vrais négatifs : 344 
+
+Faux positifs : 39 
+
+**Pour la classe 1 (Avec tsunami)**
+
+Vrais positifs : 230 
+
+Faux négatifs : 14 
+
+Le modèle est particulièrement bon pour :
+
+Identifier correctement les séismes qui génèrent des tsunamis (très peu de faux négatifs)
+
+Éviter les fausses alertes tout en maintenant une bonne détection
+
+
+## Prédiction sur le data test
+
+```{r}
+prediction <- predict(rf_model, newdata = test)
+confusionMatrix(prediction, test$tsunami)
+
+# Importance des variables
+varImpPlot(rf_model, main = "Importance des variables - Random Forest")
+```
+
+Le modèle performe très bien sur les données de test. 
+
+**Performance globale**
+
+Intervalle de confiance : [81.5%, 92.5%] → Résultats très fiables
+
+P-value significative : 2.463e-13 → Performance bien supérieure au hasard
+
+Accuracy (Précision) : 87.74% => Très bon score
+
+Kappa : 0.74 => Accord substantiel (au-dessus de 0.7 = bon)
+
+**Classe 0 (Pas de tsunami)**
+
+Vrais Négatifs : 86 
+
+Faux Positifs : 10 
+
+Sensitivity/Recall : 90.53% => Très bon pour détecter l'absence de tsunami
+
+**Classe 1 (Avec tsunami)**
+
+Vrais Positifs : 50 
+
+Faux Négatifs : 9 
+
+Specificity : 83.33% => Bon pour détecter la présence de tsunami
+
+
+# Conclusion
+
+C'est un modèle de très haute qualité qui peut être utilisé en pratique pour la prédiction des tsunamis basée sur les caractéristiques des séismes. La performance est cohérente entre l'entraînement (OOB: 8.45%) et le test (accuracy: 87.74%).
+
+
+
+
+
+
+
