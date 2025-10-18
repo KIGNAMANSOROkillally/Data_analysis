@@ -1,0 +1,161 @@
+---
+title: "crop_recommendation"
+author: "Killally"
+date: "2025-10-17"
+output: html_document
+---
+
+Cet ensemble de données est structuré de manière à prédire la culture la plus appropriée à cultiver en fonction de plusieurs paramètres agroclimatiques. Il est généralement utilisé dans le cadre d'applications d'agriculture de précision et d'apprentissage automatique visant à aider les agriculteurs, les conseillers agricoles et les décideurs politiques.
+
+https://www.kaggle.com/datasets/madhuraatmarambhagat/crop-recommendation-dataset
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(ggcorrplot)
+```
+
+# Importer le dataset
+```{r}
+data_crop <- read_csv("Crop_recommendation.csv")
+
+glimpse(data_crop)
+```
+
+# Data cleaning
+```{r}
+data_crop <- data_crop %>%
+    mutate(label = factor(label)) %>%
+    distinct()
+
+colSums(is.na(data_crop))
+
+
+data_crop %>%
+    select(where(is.numeric)) %>%
+    pivot_longer(everything(), names_to = "Variables", values_to = "Valeurs") %>%
+    ggplot(aes(x = Variables, y = Valeurs, fill = Variables)) +
+    geom_boxplot() +
+    theme_minimal() +
+    labs(title = "Distribution des variables numériques", x = "Variables", y = "Valeurs") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+# Relation entre les variables
+```{r}
+corr_matrix <- data_crop %>%
+    select(where(is.numeric)) %>%
+    cor(method = "pearson", use = "pairwise.complete.obs")
+
+ggcorrplot(corr_matrix, hc.order = FALSE, lab = TRUE, lab_size = 3, type = "full", colors = c("blue", "white", "red"),
+           ggtheme = ggplot2::theme_minimal(), title = "Correlation de Pearson entre les variables") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Exploration visuelle
+```{r}
+ggplot(data_crop, aes(x = K, y = P, color = label)) +
+    geom_point(size = 1) +
+    facet_wrap(~label) +
+    ggtitle("Relation entre potasium et phosphore par culture")
+
+ggplot(data_crop, aes(x = temperature, y = humidity, color = label)) +
+    geom_point(size = 1) +
+    facet_wrap(~label) +
+    ggtitle("Relation entre température et humidité par culture")
+```
+
+# Prédictions
+
+## Séparer les données en train/test
+```{r}
+set.seed(123)
+trainIndex <- createDataPartition(data_crop$label, p = 0.8, list = FALSE)
+trainData <- data_crop[trainIndex, ]
+testData <- data_crop[-trainIndex, ]
+```
+
+## Entrainer le modèle
+```{r}
+model_rf <- randomForest(label ~ ., data = trainData, ntree = 500, mtry = 4, importance = TRUE)
+model_rf
+```
+
+## Voir quelles variables sont les plus importantes pour la prédiction
+```{r}
+importance(model_rf)
+varImpPlot(model_rf, main = "Importance des variables")
+```
+
+*MeanDecreaseAccuracy*
+
+=> montre la baisse moyenne de précision du modèle quand on retire cette variable.
+
+=> Plus cette valeur est élevée, plus la variable est cruciale pour la performance globale.
+
+*MeanDecreaseGini*
+
+=> mesure la capacité de la variable à séparer les classes (pureté des nœuds).
+
+=> Plus cette valeur est élevée, plus la variable est utile pour distinguer les cultures.
+
+Dans mon cas :
+
+**humidity et rainfall** ont les plus fortes valeurs globales (386 et 440 en Gini).
+
+=> Ce sont les variables les plus importantes globalement pour la classification des cultures.
+
+*N, P, K* suivent avec des valeurs modérées → rôle complémentaire.
+
+
+## Faire des prédictions sur les données test
+```{r}
+prediction <- predict(model_rf, newdata = testData)
+confusionMatrix(prediction, testData$label)
+```
+
+```{r}
+# Matrice de confusion visuelle
+confusion_data <- as.data.frame(confusionMatrix(prediction, testData$label)$table)
+
+ggplot(confusion_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white", size = 3) +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Matrice de Confusion",
+       x = "Véritable Classe",
+       y = "Classe Prédite")
+```
+
+Précision globale exceptionnelle : 99.32%
+
+C'est un score remarquable pour un problème de classification multiclasse
+
+L'intervalle de confiance à 95% (98.02% - 99.86%) confirme la robustesse
+
+Performance par classe excellente :
+
+18 classes sur 22 ont une sensibilité de 100%
+
+La plupart des classes ont une spécificité de 100%
+
+Valeurs prédictives positives/négatives généralement parfaites
+
+Kappa de 0.9929 :
+
+Presque parfait (1.0 étant l'accord parfait)
+
+Indique que le modèle performe bien au-delà du hasard
+
+Quelques erreurs de classification :
+
+Blackgram : 1 instance mal classée (probablement comme maize)
+
+Jute : 2 instances de riz classées comme jute
+
+
+
