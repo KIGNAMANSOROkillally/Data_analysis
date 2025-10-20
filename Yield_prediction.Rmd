@@ -1,0 +1,294 @@
+---
+title: "Prédiction_du_rendement"
+author: "Killally"
+date: "2025-10-18"
+output: html_document
+---
+
+Cet ensemble de données comprend 28 242 entrées réparties en sept colonnes. Les colonnes représentent diverses caractéristiques liées à la production agricole et aux facteurs environnementaux dans différents pays (appelés « Zone »).
+
+Lien: https://www.kaggle.com/datasets/mrigaankjaswal/crop-yield-prediction-dataset
+
+```{r}
+# Importer les librairies
+library(tidyverse)
+library(caret)
+library(ggplot2)
+library(janitor)
+library(ggcorrplot)
+```
+
+```{r}
+# Importer le dataset
+yield_data <- read_csv("yield_df.csv") %>%
+    clean_names()
+
+glimpse(yield_data)
+```
+
+```{r}
+# Data cleaning
+colSums(is.na(yield_data))
+
+yield_data <- yield_data %>%
+    mutate(area = factor(area),
+           item = factor(item),
+           tonnes_ha_yield = hg_ha_yield / 10000) %>%
+    distinct()
+
+glimpse(yield_data)
+```
+
+```{r}
+# Distribution du rendement (variable cible)
+ggplot(yield_data, aes(x = tonnes_ha_yield)) +
+    geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7) +
+    labs(title = "Distribution du rendement", x = "Rendement (t/ha)", y = "Fréquence") +
+    theme_minimal()
+
+# Evolution temporelle du rendement
+yield_trend <- yield_data %>%
+    group_by(year) %>%
+    summarise(mean_yield = mean(tonnes_ha_yield, na.rm = TRUE))
+
+ggplot(yield_trend, aes(x = year, y = mean_yield)) +
+    geom_line(color = "darkgreen", size = 1) +
+    geom_point(color = "darkgreen") +
+    labs(title = "Evolution du rendement annuel moyen", x = "Années", y = "Rendement moyen (t/ha)") +
+    theme_minimal()
+
+# Rendement par type de culture
+ggplot(yield_data, aes(x = reorder(item, tonnes_ha_yield, median, na.rm = TRUE), y = tonnes_ha_yield)) +
+    geom_boxplot(fill = "lightgreen", alpha = 0.7) +
+    coord_flip() +
+    labs(title = "Distribution du rendement par culture", x = "Culture", y = "Rendement (t/ha)") +
+    theme_minimal()
+
+# Matrice de correlation
+corr_matrix <- yield_data %>%
+    select(where(is.numeric)) %>%
+    cor(method = "pearson", use = "pairwise.complete.obs")
+
+ggcorrplot(corr_matrix, hc.order = FALSE, lab = TRUE, lab_size = 4, type = "full", colors = c("blue", "white", "red"),
+           ggtheme = ggplot2::theme_minimal(), title = "Matrice de correlation de Pearson entre les variables numériques") +
+    theme(axis.text.x = element_text(angle = 45, size = 12, hjust = 1))
+```
+
+# PREDICTIONS
+
+## Séparation des données
+```{r}
+trainIndex <- createDataPartition(yield_data$tonnes_ha_yield, p = 0.8, list = FALSE)
+trainData <- yield_data[trainIndex, ]
+testData <- yield_data[-trainIndex, ]
+
+cat(strrep("=", 50), "\n")
+cat("Train set :", nrow(trainData), "observations\n")
+cat("Test set :", nrow(testData), "observations\n")
+cat(strrep("=", 50), "\n")
+```
+
+## Configuration du contrôle d'entraînement
+```{r}
+ctrl <- trainControl(
+    method = "cv", # Validation croisée
+    number = 5,    # 5 folds
+    verboseIter = TRUE, # Afficher la progression
+    savePredictions = "final"
+)
+```
+
+## Préparation des variables pour la modélisation
+```{r}
+model_vars <- trainData %>%
+    select(area, item, year, average_rain_fall_mm_per_year, 
+         pesticides_tonnes, avg_temp, tonnes_ha_yield)
+
+test_vars <- testData %>%
+    select(area, item, year, average_rain_fall_mm_per_year, 
+         pesticides_tonnes, avg_temp, tonnes_ha_yield)
+
+colSums(is.na(model_vars))
+```
+
+### Modèle 1 : Régression Linéaire (LM)
+```{r}
+set.seed(123)
+model_lm <- train(
+    tonnes_ha_yield ~ .,
+    data = model_vars,
+    method = "lm",
+    trControl = ctrl,
+    preProcess = c("center", "scale") # Normalisation des variables
+)
+
+#print(model_lm)
+#summary(model_lm$finalModel)
+```
+```{r}
+# Prédictions et évaluation pour LM
+predictions_lm <- predict(model_lm, newdata = test_vars)
+
+# Metrique de performance
+results_lm <- postResample(pred = predictions_lm, obs = test_vars$tonnes_ha_yield)
+print(results_lm)
+```
+
+**Performance Réelle du Modèle**
+
+RMSE = 4.29 => Erreur moyenne de 4.29 tonnes/hectare
+
+R² = 0.753 => Le modèle explique 74.52% de la variance
+
+MAE = 2.95 => Erreur absolue moyenne de 2.98 tonnes/hectare
+
+
+
+### Modèle 2 : Random Forest
+```{r}
+set.seed(123)
+model_rf <- train(
+    tonnes_ha_yield ~ .,
+    data = model_vars,
+    method = "ranger", # Plus rapide que random forest "rf" car version optimisée en C++
+    trControl = ctrl,
+    metric = "RMSE",
+    tuneLength = 3,
+    importance = "impurity"
+)
+# print(model_rf)
+```
+```{r}
+predictions_rf <- predict(model_rf, newdata = test_vars)
+
+results_rf <- postResample(pred = predictions_rf, obs = test_vars$tonnes_ha_yield)
+print(results_rf)
+```
+
+### Modèle 3: XGBoost
+```{r}
+set.seed(123)
+model_xgb <- train(
+    tonnes_ha_yield ~ .,
+    data = model_vars,
+    method = "xgbTree",
+    trControl = ctrl,
+    tuneLength = 3, # Nombre de combinaisons de paramètres à tester
+    verbose = FALSE
+)
+
+#print(model_xgb)
+#plot(model_xgb)
+```
+```{r}
+predictions_xgb <- predict(model_xgb, newdata = test_vars)
+
+results_xgb <- postResample(pred = predictions_xgb, obs = test_vars$tonnes_ha_yield)
+print(results_xgb)
+```
+
+### Modèle 4: SVM Radial
+```{r}
+model_svm <- train(
+    tonnes_ha_yield ~ .,
+    data = model_vars,
+    method = "svmRadial",
+    trControl = ctrl,
+    tuneLength = 3,
+    preProcess = c("center", "scale")
+)
+
+#print(model_svm)
+#plot(model_svm)
+```
+```{r}
+predictions_svm <- predict(model_svm, newdata = test_vars)
+
+results_svm <- postResample(predictions_svm, test_vars$tonnes_ha_yield)
+print(results_svm)
+```
+
+```{r}
+cat("MODÈLE FINAL RECOMMANDÉ : RANDOM FOREST \n")
+cat("RMSE :", round(results_rf[1], 3),
+    "| R² :", round(results_rf[2], 3),
+    "| MAE :", round(results_rf[3], 3))
+```
+
+
+### Analyser en détail le meilleur modèle
+
+#### 1. Configuration du Modèle Final
+```{r}
+print(model_rf$bestTune)
+```
+
+*Configuration optimale*
+
+mtry = 6 : 6 variables testées par split
+
+splitrule = extratrees : extrêmement randomisé => moins de overfitting
+
+min.node.size = 5 : arbres profonds pour capturer patterns complexes
+
+#### 2. Importance des variables
+```{r}
+var_Importance <- varImp(model_rf, scale = TRUE)
+
+ggplot(var_Importance, top = 15) +
+    labs(title = "Top 15 des Variables les Plus Importantes - Random Forest") +
+    theme_minimal()
+```
+
+*Variables déterminantes*
+
+Type de culture (Item) = facteur dominant (Potatoes, Rice, paddy, Sweet potatoes)
+
+Localisation (Area) = India
+
+#### Analyse des Prédictions vs Réelles
+```{r}
+comparaison_df <- data.frame(
+    Actual = test_vars$tonnes_ha_yield,
+    Predicted = predictions_rf,
+    Residual = test_vars$tonnes_ha_yield - predictions_rf
+)
+
+# Graphique prédictions vs réelles
+ggplot(comparaison_df, aes(x = Actual, y = Predicted)) +
+    geom_point(alpha = 0.5, color = "steelblue") +
+    geom_abline(intercept = 0, slope = 1, color = "red", size = 1) +
+    labs(title = "Prédictions vs Valeurs réelles - Random Forest",
+         subtitle = "La ligne rouge représente la perfection (pred = actual)",
+         x = "Valeurs réelles (t/ha)", y = "Valeurs prédites (t/ha)") +
+    theme_minimal()
+
+# Distribution des résidus
+ggplot(comparaison_df, aes(x = Residual)) +
+    geom_histogram(bins = 50, fill = "coral", alpha = 0.7) +
+    labs(title = "Distribution des résidus", x = "Résidu (réel - prédit)", y = "Fréquence") +
+    theme_minimal()
+```
+
+*Précision*
+
+Points alignés sur ligne rouge = prédictions quasi-parfaites
+
+Résidus centrés autour de 0 = pas de biais systématique
+
+Faible dispersion = erreurs minimes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
