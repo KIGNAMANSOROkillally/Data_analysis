@@ -1,0 +1,142 @@
+---
+title: "Production_prediction"
+author: "Killally"
+date: "2025-10-20"
+output: html_document
+---
+
+L'objectif principal de l'analyse de cet ensemble de données est de développer des modèles prédictifs pour la production agricole. En exploitant les données historiques, les algorithmes d'apprentissage automatique peuvent prévoir les niveaux de production futurs et identifier les risques potentiels.
+
+```{r}
+setwd("C:/Users/killm/Downloads/Tous_dossiers/Dossiers_R/Data_analyse/AGRI/Yield_pred2")
+```
+
+# Import des librairies
+```{r}
+library(tidyverse)
+library(caret)
+library(ggplot2)
+library(ggcorrplot)
+library(janitor)
+```
+
+# Importation des données
+```{r}
+prod_data <- read_csv("Crop_Production_data.csv") %>%
+    clean_names()
+
+summary(prod_data)
+skimr::skim(prod_data)
+```
+
+# Nettoyage des données
+```{r}
+prod_data <- prod_data %>%
+    mutate(
+        state_name = as.factor(state_name),
+        district_name = as.factor(district_name),
+        season = as.factor(season),
+        crop = as.factor(crop)
+    )
+
+prod_data_clean <- prod_data %>%
+    drop_na() %>%
+    distinct()
+
+skimr::skim(prod_data_clean)
+```
+
+# Analyse exploratoire
+```{r}
+# Visualiser la fréquence des pays dans les données
+States_count <- prod_data_clean %>%
+    count(state_name, sort = TRUE) %>%
+    mutate(pct = n / sum(n) * 100)
+    
+
+ggplot(States_count, aes(x = reorder(state_name, n), y = pct, fill = pct)) +
+    geom_col() +
+    geom_text(aes(label = round(pct, 1)), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_fill_viridis_c(option = "magma", guide = "none") + # guide = "none" pour cacher la légende
+    labs(title = "Part de chaque Etat dans les données",
+         x = "Etat", y = "Pourcentage") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Part de chaque Etat dans la production
+States_prod <- prod_data_clean %>%
+    group_by(state_name) %>%
+    summarise(country_tot_prod = sum(production, na.rm = TRUE)) %>%
+    mutate(
+        grand_total = sum(country_tot_prod, na.rm = TRUE),
+        percentage = country_tot_prod / grand_total * 100
+    ) %>%
+    arrange(desc(percentage))
+
+top10State <- head(States_prod, 10)
+
+ggplot(top10State, aes(x = reorder(state_name, percentage), y = percentage, fill = percentage)) +
+    geom_col() +
+    geom_text(aes(label = paste(round(percentage, 2), "%")), hjust = 0.5, vjust = -0.6, size = 4) +
+    #coord_flip() +
+    scale_fill_viridis_c(option = "magma", guide = "none") +
+    labs(title = "Part des Etats dans la production",
+         x = "Etats", y = "Pourcentage") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+# Prodution par année
+prod_per_year <- prod_data_clean %>%
+    group_by(crop_year) %>%
+    summarise(
+        mean_year = mean(production, na.rm = TRUE)
+    ) %>%
+    ungroup()
+
+ggplot(prod_per_year, aes(x = crop_year, y = mean_year)) +
+    geom_point(color = "steelblue", size = 4) +
+    geom_line(color = "darkred", linewidth = 2) +
+    labs(title = "Évolution de la production par année",
+         subtitle = "Les valeurs ont été obtenues en moyennant le rendement dans tous les pays par année",
+         x = "Année", y = "Production moyenne (t/ha)") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+# Variation de la production en fonction de la culture
+prod_data_clean %>%
+    group_by(crop) %>%
+    summarise(median_production = median(production, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(median_production)) %>%
+    head(10) %>% # Afficher les 10 premières cultures
+    ggplot(aes(x = reorder(crop, median_production), y = median_production, fill = median_production)) +
+    geom_col() +
+    scale_fill_distiller(palette = "Blues", direction = 1, guide = "none") +
+    #coord_flip() +
+    labs(
+        title = "Variation de la production selon la culture",
+        x = "Culture", y = "Production (t/ha)"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Production selon la saison
+prod_data_clean %>%
+    group_by(season) %>%
+    summarise(
+        median_prod = median(production, na.rm = TRUE), .groups = "drop"
+    ) %>%
+    ggplot(aes(x = reorder(season, median_prod), y = median_prod, fill = median_prod)) +
+    geom_col() +
+    scale_fill_viridis_c(option = "inferno", guide = "none") +
+    labs(title = "Variation de la production selon la saison",
+         x = "Saison", y = "Production (t/ha)") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    
+```
+
+# LES PRÉDICTIONS
+
