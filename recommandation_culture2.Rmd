@@ -1,0 +1,281 @@
+---
+title: "crop_recommand2"
+author: "Killally"
+date: "2025-10-22"
+output: html_document
+---
+
+```{r}
+setwd("C:/Users/killm/Downloads/Tous_dossiers/Dossiers_R/Data_analyse/AGRI/Recommendation")
+```
+
+# Importer les librairies
+```{r}
+library(tidyverse)
+library(caret)
+library(ggplot2)
+library(janitor)
+library(ggcorrplot)
+```
+
+# Importer le dataset
+```{r}
+crop_recom <- read_csv("crop_recommendation_dataset.csv") %>%
+    clean_names()
+
+glimpse(crop_recom)
+summary(crop_recom)
+```
+
+# Nettoyage des données
+```{r}
+crop_recom <- crop_recom %>%
+    mutate(
+        soil = as.factor(soil),
+        crop = as.factor(crop)
+    ) %>%
+    drop_na() %>%
+    distinct()
+
+summary(crop_recom)
+```
+
+# Analyse exploratoire
+```{r}
+corr_matrix <- crop_recom %>%
+    select(where(is.numeric)) %>%
+    cor(method = "pearson", use = "pairwise.complete.obs")
+
+ggcorrplot(corr_matrix, hc.order = FALSE, lab = TRUE, lab_size = 4, colors = c("blue", "white", "red"), type = "full",
+           ggtheme = ggplot2::theme_minimal(), title = "Matrice de correlation de Pearson entre les variables numériques") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+D'après Cohen(1988), Le coefficient de corrélation est couramment utilisé pour évaluer l’ampleur d’un effet : une corrélation comprise entre 0 et ±0,1 correspond à un effet faible, entre ±0,1 et ±0,3 à un effet moyen, et au-delà de ±0,5 à un effet important.
+
+**Corrélations FORTES (|r| ≥ 0.5) :**
+
+phosphorous et potassium (0.83), nitrogen et rainfall (0.87)
+
+**Corrélations MODÉRÉES (0.3 ≤ |r| < 0.5) :**
+
+humidity et nitrogen (0.486) → effet moyen
+
+humidity et phosphorous (0.407) → effet moyen
+
+ph et phosphorous (0.454) → effet moyen
+
+ph et potassium (0.376) → effet moyen
+
+**Corrélations FAIBLES (0.1 ≤ |r| < 0.3) :**
+
+temperature et nitrogen (0.193)
+
+rainfall et potassium (0.260)
+
+**Négligeables (|r| < 0.1) :**
+
+Toutes les autres, notamment avec carbon (se demander pourquoi?)
+
+```{r}
+library(ggpubr)
+ggplot(crop_recom, aes(x = rainfall, y = nitrogen)) +
+    geom_point(size = 2, alpha = 0.3) +
+    geom_smooth(method = "loess", color = "red", se = TRUE) +
+    labs(title = "Relation entre l'azote et les précipitations", x = "Précipitations", y = "Azote") +
+    theme_minimal() +
+    stat_cor()
+
+ggplot(crop_recom, aes(x = rainfall, y = nitrogen)) +
+    geom_point(size = 2, alpha = 0.3) +
+    geom_smooth(method = "loess", color = "red", se = TRUE) +
+    facet_wrap(~soil) +
+    labs(title = "Relation entre l'azote et les précipitations selon le type de sol", x = "Précipitations", y = "Azote") +
+    theme_minimal() +
+    stat_cor()
+```
+Sur le graphique:
+
+Dans le sol alcalin (Alkaline Soil), les valeurs d’azote sont nettement plus faibles et varient dans une plage restreinte (environ 55 à 70).
+
+Alors que dans les autres types de sols (acide, neutre, limoneux, tourbeux), la concentration en azote atteint 80–90, voire plus selon les précipitations.
+
+Plusieurs facteurs physico-chimiques peuvent expliquer pourquoi la quantité d’azote est plus faible dans un sol alcalin (pH élevé) par rapport aux autres types de sols.
+
+- À pH élevé, certaines réactions chimiques favorisent la volatilisation de l’ammoniac (NH₃), ce qui entraîne une perte d’azote gazeux vers l’atmosphère
+
+- Dans un sol alcalin, certains groupes bactériens peuvent être moins actifs ou moins diversifiés, réduisant ainsi la production de nitrates utilisables
+
+- Dans un sol alcalin, la structure et la texture peuvent accentuer le lessivage : l’eau s’infiltre plus rapidement, entraînant une perte de nutriments
+
+```{r}
+ggplot(crop_recom, aes(x = phosphorous, y = potassium)) +
+    geom_point(alpha = 0.3, size = 2) +
+    geom_smooth(method = "loess", color = "red", se = TRUE) +
+    labs(title = "Relation entre phosphore et potassium", x = "Phosphore", y = "Potassium") +
+    theme_minimal() +
+    stat_cor()
+
+ggplot(crop_recom, aes(x = phosphorous, y = potassium)) +
+    geom_point(alpha = 0.3, size = 2) +
+    geom_smooth(method = "loess", color = "red", se = TRUE) +
+    facet_wrap(~soil) +
+    labs(title = "Relation entre phosphore et potassium selon le type de sol", x = "Phosphore", y = "Potassium") +
+    theme_minimal() +
+    stat_cor()
+```
+
+Sol acide (R = 0,39) => corrélation faible à modérée : la teneur en potassium augmente légèrement avec celle en phosphore, mais la relation reste dispersée.
+
+Sol alcalin (R = 0,59) => corrélation modérée : le potassium augmente plus nettement avec le phosphore.
+
+Sol limoneux (R = 0,66) => corrélation forte : plus le phosphore augmente, plus le potassium suit la même tendance.
+
+Sol neutre (R = 0,64) => corrélation forte également, avec une pente plus marquée.
+
+Sol tourbeux (R = 0,49) => corrélation modérée, mais la relation semble moins régulière.
+
+*Interprétation*
+
+Dans les sols acides, le phosphore est souvent immobilisé sous forme de composés insolubles (phosphates de fer et d’aluminium), ce qui limite sa disponibilité et réduit donc la corrélation avec le potassium.
+
+Dans les sols alcalins et neutres, le phosphore est plus disponible pour les plantes, ce qui favorise une meilleure association entre P et K, deux nutriments souvent absorbés conjointement lors de la croissance.
+
+Le sol limoneux présente à la fois une bonne rétention d’eau et une disponibilité nutritive équilibrée, ce qui explique la forte corrélation (R = 0,66).
+
+Dans le sol tourbeux, riche en matière organique, les minéraux peuvent être retenus ou complexés, ce qui perturbe la relation directe entre phosphore et potassium.
+
+```{r}
+data_long <- crop_recom %>%
+    pivot_longer(c(nitrogen, phosphorous, potassium))
+ggplot(data_long, aes(x = soil, y = value)) +
+    geom_boxplot() +
+    facet_wrap(~name, scales = "free_y") +
+    labs(title = "Variablilité des nutriments dans les différents sols", x = "Sols", y = "Valeurs") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# FAIRE DES PRÉDICTIONS
+
+## Séparation des données
+```{r}
+trainIndex <- createDataPartition(crop_recom$crop, p = 0.8, list = FALSE)
+trainData <- crop_recom[trainIndex, ]
+testData <- crop_recom[-trainIndex, ]
+
+cat(strrep("=", 50), "\n")
+cat("Train set :", nrow(trainData), "observations\n")
+cat("Test set :", nrow(testData), "observations\n")
+cat(strrep("=", 50), "\n")
+```
+
+## Configuration du contrôle d'entrainement
+```{r}
+ctrl <- trainControl(
+    method = "cv",
+    number = 5,
+    verboseIter = TRUE,
+    savePredictions = "final"
+)
+```
+
+## Modèle 1: Random forest (ranger)
+```{r}
+model_rf <- train(
+    crop ~ .,
+    data = trainData,
+    method = "ranger",
+    trControl = ctrl,
+    tuneLength = 3,
+    importance = "impurity"
+)
+print(model_rf)
+```
+```{r}
+prediction_rf <- predict(model_rf, newdata = testData)
+prediction_rf
+
+result_rf <- postResample(pred = prediction_rf, obs = testData$crop)
+result_rf
+```
+
+Accuracy (Précision) = 0.958 (95.8%)
+
+Signification : Le modèle de Random Forest est capable de prédire correctement la culture dans 95.8% des cas sur de nouvelles données qu'il n'a jamais vues.
+
+C'est un score excellent et très élevé. Cela signifie que pour 100 parcelles de terre avec leurs caractéristiques, le modèle se trompera seulement sur environ 4 d'entre elles.
+
+Kappa = 0.957 (95.7%)
+
+Signification : Le niveau d'accord entre les prédictions du modèle et la réalité est de 95.7%, après avoir soustrait l'effet du pur hasard.
+
+Comme l'Accuracy est très élevée, le Kappa l'est aussi.
+
+D'après les échelles d'interprétation courantes, un Kappa > 0.8 représente un accord presque parfait.
+
+Il n'y a pas de signe de surapprentissage (overfitting), car les performances sur le jeu de test (95.8%) sont même légèrement meilleures que celles observées en validation croisée (95.4%).
+
+Il est donc prêt à être utilisé pour faire des prédictions dans un contexte réel.
+
+## Modèle 2: XGBoost
+```{r}
+model_xgb <- train(
+    crop ~ .,
+    data = trainData,
+    method = "xgbTree",
+    trControl = ctrl,
+    tuneLength = 3,
+    verbose = FALSE
+)
+```
+```{r}
+prediction_xgb <- predict(model_xgb, newdata = testData)
+prediction_xgb
+
+result_xgb <- postResample(pred = prediction_xgb, obs = testData$crop)
+result_xgb
+```
+
+## Modèle 3: SVM Radial 
+```{r}
+model_svm <- train(
+    crop ~ .,
+    data = trainData,
+    method = "svmRadial",
+    trControl = ctrl,
+    tuneLength = 3
+)
+```
+```{r}
+prediction_svm <- predict(model_svm, newdata = testData)
+prediction_svm
+
+result_svm <- postResample(pred = prediction_svm, obs = testData$crop)
+result_svm
+```
+
+## Comparaison des modèles
+```{r}
+performanceModel <- tibble(
+    Modèle = c("Random Forest", "XGBoost", "SVM Radial"),
+    accuracy = c(result_rf[1], result_xgb[1], result_svm[1]),
+    kappa = c(result_rf[2], result_xgb[2], result_svm[2])
+)
+```
+```{r}
+performancelong <- performanceModel %>%
+    pivot_longer(cols = c(accuracy, kappa),
+                 names_to = "Metric", values_to = "Valeur")
+
+ggplot(performancelong, aes(x = Modèle, y = Valeur, fill = Metric)) +
+    geom_col(position = "dodge") +
+    labs(title = "Comparaison des performances des modèles", x = "Modèle", y = "Score") +
+    geom_text(aes(label = round(Valeur, 3)), position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+    scale_fill_brewer(palette = "Set1") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+Le meilleur modèle est le modèle XGBoost.
+
+
+
